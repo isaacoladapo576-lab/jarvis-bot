@@ -439,8 +439,8 @@ import asyncio
 FALLBACK_MODELS = [
     "qwen/qwen3.6-27b",
     "groq/compound",
-    "groq/compound-mini",
     "qwen/qwen3.8-27b",
+    "groq/compound-mini",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b"
 ]
@@ -463,7 +463,8 @@ async def ask_ai_raw(user_id, messages_list, system):
             except Exception as e:
                 print(f"[Model Failover] {model_name} failed: {e}. Trying next model...")
                 last_error = e
-        return "I encountered a high-traffic volume from model APIs, but JARVIS remains operational. Please repeat your prompt!"
+        print(f"[ALL MODELS FAILED] Last error: {last_error}")
+        return None
     return await asyncio.to_thread(_call)
 
 async def fable5_autonomous_loop(user_id, prompt, system, mode, channel=None):
@@ -1182,13 +1183,14 @@ async def on_message(message: discord.Message):
                 prompt = f"{prompt}\n\n[ATTACHED FILES — Read these carefully and use them in your response]\n{file_block}"
 
     clean_p = prompt.strip().lower().strip('?.!,')
-    if clean_p in ['hi', 'hello', 'hey', 'sup', 'yo', 'how are you', 'hows it going', 'how are you doing', 'hello jarvis', 'hi jarvis', 'hey jarvis']:
+    SIMPLE_GREETINGS = {'hi', 'hello', 'hey', 'sup', 'yo', 'hi jarvis', 'hello jarvis', 'hey jarvis'}
+    if clean_p in SIMPLE_GREETINGS:
         greetings = [
             "Hello! JARVIS online. How can I assist you today?",
             "Greetings! I am online and ready. What's on your mind?",
             "Yo! JARVIS here, fully operational. What objective are we executing next?",
-            "Hi there! I am doing excellent. System status: 100% operational. How can I help you?",
-            "Hello! Ready to write some code, build a Zen script, or search the web. What do you need?"
+            "Hi there! System status: 100% operational. How can I help you?",
+            "Hello! Ready to write code, build scripts, or answer questions. What do you need?"
         ]
         import random
         await message.channel.send(random.choice(greetings))

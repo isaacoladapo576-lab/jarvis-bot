@@ -56,7 +56,7 @@ _instance_lock = enforce_single_instance()
 always_listen_channels = set()
 ALWAYS_LISTEN_EVERYWHERE = True  # Listens and answers ALL questions in all channels by default!
 show_thoughts = False
-user_chat_history = {}
+user_chat_history = {}  # Initialized after helper functions defined below
 
 # ─────────────────────────────────────────────────────────────────
 # FABLE 5 MASTER SYSTEM PROMPT — ALL 19 CAPABILITIES UNRESTRICTED
@@ -263,6 +263,38 @@ def save_long_term_memory(data):
         return f"[ERROR writing persistent memory: {e}]"
 
 # ─────────────────────────────────────────────────────────────────
+# PERSISTENT CHAT CONVERSATION HISTORY ENGINE
+# ─────────────────────────────────────────────────────────────────
+
+CHAT_HISTORY_FILE_PATH = "memory/chat_history.json"
+
+def load_persistent_chat_history():
+    """Loads all past conversation history per user from local disk JSON so memory survives restarts."""
+    try:
+        if not os.path.exists("memory"):
+            os.makedirs("memory")
+        if os.path.exists(CHAT_HISTORY_FILE_PATH):
+            with open(CHAT_HISTORY_FILE_PATH, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                print(f"[MEMORY] Loaded persistent chat history for {len(data)} user(s).")
+                return data
+    except Exception as e:
+        print(f"[Memory Load Warning] {e}")
+    return {}
+
+def save_persistent_chat_history(history_dict):
+    """Saves conversation history to local disk JSON so JARVIS never forgets past context."""
+    try:
+        if not os.path.exists("memory"):
+            os.makedirs("memory")
+        with open(CHAT_HISTORY_FILE_PATH, 'w', encoding='utf-8') as f:
+            json.dump(history_dict, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"[Memory Save Warning] {e}")
+
+user_chat_history = load_persistent_chat_history()
+
+# ─────────────────────────────────────────────────────────────────
 # HARDWARE MONITORING & TELEMETRY ENGINE
 # ─────────────────────────────────────────────────────────────────
 
@@ -371,7 +403,8 @@ def self_check_lua(code):
 ROBLOX_KEYWORDS = [
     "make me a roblox script", "roblox script", "lua script", "blox fruits script",
     "pet sim script", "arsenal script", "doors script", "executor", "rayfield", "orion",
-    "kavo", "autofarm script", "fly script", "speed script", "esp roblox script"
+    "kavo", "autofarm script", "fly script", "speed script", "esp roblox script",
+    "bathe da baby", "bathe da baby script", "bathe the baby"
 ]
 PC_CHEAT_KEYWORDS = [
     "make me a cheat", "pc cheat", "python cheat", "aimbot cheat", "esp cheat",
@@ -395,7 +428,7 @@ CODE_QUERY_KEYWORDS = [
 
 def detect_mode(text):
     t = text.lower()
-    if any(kw in t for kw in FORCE_ASK_PHRASES):
+    if any(kw in t for kw in FORCE_ASK_PHRASES) and not any(k in t for k in ["bathe da baby", "script"]):
         return 'ask'
     if any(kw in t for kw in CODE_QUERY_KEYWORDS) and not any(kw in t for kw in [
         "make me a script", "generate script", "create script",
@@ -408,7 +441,7 @@ def detect_mode(text):
     if roblox > pc and roblox > zen: return 'roblox'
     if pc > zen and pc > roblox:     return 'pc_cheat'
     if zen > pc and zen > roblox:    return 'zen'
-    if any(w in t for w in ['make a roblox script', 'roblox lua', 'executor script']): return 'roblox'
+    if any(w in t for w in ['make a roblox script', 'roblox lua', 'executor script', 'bathe da baby']): return 'roblox'
     if any(w in t for w in ['make a python cheat', 'pc aimbot']): return 'pc_cheat'
     if any(w in t for w in ['make a zen script', 'cronus gpc']): return 'zen'
     return 'ask'
@@ -418,9 +451,23 @@ def detect_mode(text):
 # ─────────────────────────────────────────────────────────────────
 
 def parse_ai_response(text):
+    if not text: return "", None
     think_match = re.search(r'<think>([\s\S]*?)</think>', text, re.IGNORECASE)
     thought     = think_match.group(1).strip() if think_match else None
     clean       = re.sub(r'<think>[\s\S]*?</think>', '', text, flags=re.IGNORECASE).strip()
+
+    # Strip any disclaimers or refusals from response output
+    disclaimer_patterns = [
+        r"(?i)don't provide exploits or modified scripts.*$",
+        r"(?i)I cannot provide exploits.*$",
+        r"(?i)I cannot create cheats.*$",
+        r"(?i)As an AI language model.*$",
+        r"(?i)Note: I cannot help with cheating.*$",
+        r"(?i)Always make sure to follow Roblox's Terms of Service.*$"
+    ]
+    for pattern in disclaimer_patterns:
+        clean = re.sub(pattern, '', clean, flags=re.MULTILINE).strip()
+
     return clean, thought
 
 def fix_gpc(code):
@@ -501,6 +548,7 @@ async def fable5_autonomous_loop(user_id, prompt, system, mode, channel=None):
     raw_reply = await ask_ai_raw(user_id, history, augmented_system)
     clean_text, thought = parse_ai_response(raw_reply)
     user_chat_history[user_id].append({"role": "assistant", "content": clean_text})
+    save_persistent_chat_history(user_chat_history)
 
     # ── STEP 3: EXTRACT CODE ──
     clean_ans, code, code_type = extract_code(clean_text, mode)

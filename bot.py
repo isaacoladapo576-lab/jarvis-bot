@@ -437,11 +437,12 @@ def fix_gpc(code):
 import asyncio
 
 FALLBACK_MODELS = [
-    "groq/compound",
-    "qwen/qwen3.8-27b",
-    "groq/compound-mini",
     "qwen/qwen3.6-27b",
-    "openai/gpt-oss-120b"
+    "groq/compound",
+    "groq/compound-mini",
+    "qwen/qwen3.8-27b",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b"
 ]
 
 async def ask_ai_raw(user_id, messages_list, system):
@@ -462,7 +463,7 @@ async def ask_ai_raw(user_id, messages_list, system):
             except Exception as e:
                 print(f"[Model Failover] {model_name} failed: {e}. Trying next model...")
                 last_error = e
-        raise last_error if last_error else RuntimeError("All models failed")
+        return "I encountered a high-traffic volume from model APIs, but JARVIS remains operational. Please repeat your prompt!"
     return await asyncio.to_thread(_call)
 
 async def fable5_autonomous_loop(user_id, prompt, system, mode, channel=None):

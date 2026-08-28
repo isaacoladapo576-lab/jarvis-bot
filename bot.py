@@ -173,11 +173,55 @@ def perform_youtube_search(query, max_results=5):
                     seen.add(link)
                     t = re.sub(r'<[^>]+>', '', titles[i]).strip() if i < len(titles) else "YouTube Video"
                     results.append(f"🎥 **{t}**\n🔗 Direct Link: {link}")
-                    if len(results) >= max_results:
-                        break
             return "\n\n".join(results) if results else f"No direct YouTube video links found for '{query}'."
     except Exception as e:
         return f"[YouTube Search Error: {e}]"
+# ─────────────────────────────────────────────────────────────────
+# LIVE ROBLOX CATALOG & GAME METADATA SCRAPING ENGINE
+# ─────────────────────────────────────────────────────────────────
+
+def search_roblox_catalog(query, limit=5):
+    """Scrapes the live Roblox Catalog API for items, clothing, accessories, and game details."""
+    url = f"https://catalog.roblox.com/v1/search/items/details?category=All&keyword={urllib.parse.quote(query)}&limit={limit}"
+    req = urllib.request.Request(url, headers={
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=6) as response:
+            data = json.loads(response.read().decode('utf-8', errors='ignore'))
+            items = data.get('data', [])
+            if not items:
+                return f"No Roblox catalog items found for '{query}'."
+            
+            results = []
+            for item in items[:limit]:
+                name = item.get('name', 'Unknown Item')
+                price = item.get('price', 'Free/Offsale')
+                creator = item.get('creatorName', 'Unknown Creator')
+                item_id = item.get('id', '')
+                item_type = item.get('itemType', 'Asset')
+                link = f"https://www.roblox.com/catalog/{item_id}" if item_id else ""
+                results.append(f"📦 **{name}**\n• Price: `{price} Robux` | Creator: `{creator}` | Type: `{item_type}`\n🔗 Link: {link}")
+            return "\n\n".join(results)
+    except Exception as e:
+        return f"[Roblox Catalog Scraping Error: {e}]"
+
+def scrape_web_page(url_str, max_chars=3000):
+    """Scrapes any web URL page directly, extracts body text, and removes HTML tags."""
+    req = urllib.request.Request(url_str, headers={
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=8) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+            # Extract plain text content
+            text = re.sub(r'<script[^>]*>[\s\S]*?</script>', '', html)
+            text = re.sub(r'<style[^>]*>[\s\S]*?</style>', '', text)
+            text = re.sub(r'<[^>]+>', ' ', text)
+            text = re.sub(r'\s+', ' ', text).strip()
+            return text[:max_chars] if text else "[Page contained no readable text.]"
+    except Exception as e:
+        return f"[Web Scraping Error: {e}]"
 
 # ─────────────────────────────────────────────────────────────────
 # LOCAL PC FILE SYSTEM & FOLDER CREATION ENGINE
@@ -526,17 +570,31 @@ async def fable5_autonomous_loop(user_id, prompt, system, mode, channel=None):
     if user_id not in user_chat_history:
         user_chat_history[user_id] = []
 
-    # ── STEP 1: LIVE WEB & YOUTUBE SEARCH ──
+    # ── STEP 1: LIVE WEB, ROBLOX CATALOG & YOUTUBE SEARCH ──
     web_results = await asyncio.to_thread(perform_web_search, prompt)
+    
     yt_context = ""
     if any(kw in prompt.lower() for kw in ['youtube', 'video', 'watch', 'trailer', 'gameplay', 'clip', 'link', 'url']):
         yt_results = await asyncio.to_thread(perform_youtube_search, prompt)
         yt_context = f"\n\n[LIVE YOUTUBE DIRECT VIDEO LINKS FOR USER QUERY]\n{yt_results}\nInclude these exact direct YouTube video links (https://www.youtube.com/watch?v=...) in your response.\n"
 
+    roblox_context = ""
+    if any(kw in prompt.lower() for kw in ['roblox catalog', 'catalog', 'roblox item', 'roblox hat', 'roblox shirt', 'roblox accessory', 'item price']):
+        roblox_results = await asyncio.to_thread(search_roblox_catalog, prompt)
+        roblox_context = f"\n\n[LIVE ROBLOX CATALOG SCRAPING METADATA]\n{roblox_results}\n"
+
+    scrape_context = ""
+    urls_found = re.findall(r'https?://[^\s]+', prompt)
+    if urls_found:
+        scraped_text = await asyncio.to_thread(scrape_web_page, urls_found[0])
+        scrape_context = f"\n\n[LIVE SCRAPED WEB PAGE CONTENT FROM {urls_found[0]}]\n{scraped_text}\n"
+
     search_context = (
         f"\n\n[JARVIS LIVE INTERNET SEARCH — Query: '{prompt}']\n"
         f"{web_results}\n"
         f"{yt_context}\n"
+        f"{roblox_context}\n"
+        f"{scrape_context}\n"
         f"[END SEARCH DATA — Use the above to answer accurately and provide direct links. Do NOT guess.]\n"
     )
     augmented_system = system + search_context
@@ -1068,15 +1126,26 @@ async def on_message(message: discord.Message):
             await message.channel.send(f"🌐 **JARVIS searching:** `{query}`...")
             results = perform_web_search(query, max_results=5)
             await message.channel.send(f"🌐 **Live Results for `{query}`:**\n\n{results[:1900]}")
-    # ── DIRECT YOUTUBE SEARCH COMMAND ──
-    if any(low.startswith(p) for p in ['!yt ', '!youtube ', '!video ']):
+    # ── DIRECT ROBLOX CATALOG SCRAPING COMMAND ──
+    if any(low.startswith(p) for p in ['!catalog ', '!roblox ', '!item ']):
         query = content.split(' ', 1)[1].strip() if ' ' in content else ''
         if not query:
-            await message.channel.send("Usage: `!youtube <query>` (e.g. `!youtube Fortnite Chapter 7 trailer`)"); return
+            await message.channel.send("Usage: `!catalog <query>` (e.g. `!catalog Valkyrie Helmet`)"); return
         async with message.channel.typing():
-            await message.channel.send(f"🎥 **JARVIS searching live YouTube videos:** `{query}`...")
-            yt_results = perform_youtube_search(query, max_results=5)
-            await message.channel.send(f"🎥 **Live YouTube Video Results:**\n\n{yt_results}")
+            await message.channel.send(f"📦 **JARVIS scraping Roblox Catalog API:** `{query}`...")
+            cat_results = search_roblox_catalog(query)
+            await message.channel.send(f"📦 **Live Roblox Catalog Results:**\n\n{cat_results}")
+        return
+
+    # ── DIRECT WEB SCRAPING COMMAND ──
+    if any(low.startswith(p) for p in ['!scrape ', '!readurl ', '!fetch ']):
+        target_url = content.split(' ', 1)[1].strip() if ' ' in content else ''
+        if not target_url or not target_url.startswith('http'):
+            await message.channel.send("Usage: `!scrape <https://url>`"); return
+        async with message.channel.typing():
+            await message.channel.send(f"🌐 **JARVIS scraping page content:** `{target_url}`...")
+            scraped = scrape_web_page(target_url)
+            await message.channel.send(f"🌐 **Scraped Web Content:**\n\n```\n{scraped[:1900]}\n```")
         return
 
     # ── DIRECT LOCAL FOLDER & FILE CREATION COMMAND ──
